@@ -10,7 +10,7 @@ It is **not** a chat wrapper. There is no conversation and no free-form answer s
 
 ## Status
 
-🚧 **Planning.** Course week S2 (10 Nov 2026), heading towards review 1 on 24 Nov 2026. The repository currently contains only this README. There is no application code, no migration and no test yet. Every feature below is **Planned** unless stated otherwise.
+🚧 **Skeleton in place.** Course week S2 (10 Nov 2026), heading towards review 1 on 24 Nov 2026. The repository contains the official Laravel Vue starter kit (Laravel, Inertia, Vue 3, Fortify authentication, Pest) and a CI workflow ([`.github/workflows/tests.yml`](.github/workflows/tests.yml)). There is no recettIA domain code yet: no business entity, no migration beyond the starter kit's, no AI code. Every feature below is **Planned** unless stated otherwise.
 
 School project 2 of the *Projet d'intégration de développement* course (5IDEV, Ifosup Wavre, 2026-2027): [course page](https://cours.tsix.be/cours/projet-dintegration-de-developpement/projet-2).
 
@@ -127,7 +127,8 @@ The model never returns prices, costs or margins. Those fields do not exist in t
 - [ ] Demo seeders (restaurant, price list, dishes, weekly menu)
 
 **O3 · Accounts and access**
-- [ ] Registration and login, roles `user` and `admin`
+- [x] Registration, login, logout, password reset, email verification (provided by the Laravel Vue starter kit, Fortify)
+- [ ] Roles `user` and `admin`
 - [ ] Policies: a user only sees their own (or their restaurant's) data
 - [ ] Responsive layout usable on a phone
 
@@ -238,17 +239,19 @@ food_cost_ratio = cost_per_portion / selling_price
 
 | Layer | Technology |
 |---|---|
-| Backend | Laravel 13, PHP 8.4 *(versions proposed)* |
-| Bridge | Inertia.js |
-| Frontend | Vue 3 (Composition API) |
-| Styling | Tailwind CSS *(proposed)* |
+| Backend | Laravel 13, PHP 8.4 |
+| Authentication | Laravel Fortify (from the starter kit) |
+| Bridge | Inertia.js 3 |
+| Frontend | Vue 3 (Composition API), TypeScript |
+| Build | Vite+ (`vp` CLI, Vite-compatible toolchain from the starter kit) |
+| Styling | Tailwind CSS 4 |
 | Database | PostgreSQL 16 *(proposed default)* |
 | AI gateway | OpenRouter, called from Laravel only |
 | Model | Model choice pending, justified in the project report |
 | QR code generation | Library TBD |
-| Tests | Pest *(proposed)*, fake AI provider |
-| Lint / format | Laravel Pint, ESLint, Prettier *(proposed)* |
-| CI | GitHub Actions *(proposed, not yet configured)* |
+| Tests | Pest 5; fake AI provider *(planned)* |
+| Lint / format / types | Laravel Pint, Larastan, `vp check` (lint + format), vue-tsc |
+| CI | GitHub Actions |
 | Hosting | Hetzner |
 
 Model candidates (not decided): small, fast, low-cost instruction models available on OpenRouter that support structured JSON output. The choice will be made on measured accuracy on a test set of recipes and observed cost.
@@ -458,8 +461,6 @@ ADRs to be written in `docs/adr/`.
 
 ## Installation
 
-Planned, available once the Laravel skeleton is committed.
-
 ```bash
 git clone https://github.com/buhovac/recettia.git
 cd recettia
@@ -468,43 +469,65 @@ npm install
 
 cp .env.example .env
 php artisan key:generate
-php artisan migrate --seed
+# Set DB_PASSWORD (and DB_USERNAME if needed) in .env, then start PostgreSQL 16.
+# Optional: a local PostgreSQL 16 container (any other local PostgreSQL works too)
+docker compose up -d
+php artisan migrate
 
 composer run dev
 ```
+
+`composer run dev` starts the Laravel server, a queue worker, the log viewer (Pail) and the Vite dev server together.
 
 Environment variables (names only, values in your local `.env`, never committed):
 
 ```dotenv
 DB_CONNECTION=pgsql
-DB_DATABASE=
-DB_USERNAME=
+DB_HOST=127.0.0.1
+DB_PORT=5432
+DB_DATABASE=recettia
+DB_USERNAME=recettia
 DB_PASSWORD=
 
-AI_PROVIDER=fake            # fake | openrouter
+# AI (not wired yet: no code reads these variables)
 OPENROUTER_API_KEY=
 OPENROUTER_MODEL=
+AI_PROVIDER=fake            # planned: fake | openrouter
+AI_FAKE_SCENARIO=           # planned: ok | timeout | down | credit | invalid_json | bad_schema
 AI_TIMEOUT_SECONDS=
-AI_FAKE_SCENARIO=ok         # ok | timeout | down | credit | invalid_json | bad_schema
 ```
 
 ## Requirements
 
-- PHP 8.4+ *(proposed)*
+- PHP ≥ 8.4.1
+- Node.js ^22.18 or ^24.11
 - Composer 2
-- Node.js 20+ *(proposed)*
-- PostgreSQL 16+ *(proposed)*
+- PostgreSQL 16 (optional local container via `compose.yaml`; any other local PostgreSQL 16 works)
 
 ## Testing
 
-No tests exist yet. Planned: `php artisan test` (Pest) covering policies, validation rules, the JSON validator, cost formulas and every O5 scenario through the fake provider. No test calls OpenRouter.
+```bash
+php artisan test                                    # Pest (SQLite in memory, no PostgreSQL needed)
+vendor/bin/pint --test                              # PHP code style
+vendor/bin/phpstan analyse --memory-limit=1G        # Larastan, level 7
+npm run check                                       # frontend lint + format check (Vite+)
+npm run types:check                                 # vue-tsc
+npm run build
+```
+
+The current tests are the starter kit's own (authentication, email verification, profile and security settings). There are no recettIA domain tests yet. Planned: tests for policies, validation rules, the JSON validator, cost formulas and every O5 scenario through the fake provider. No test calls OpenRouter.
 
 ---
 
 ## Deployment & CI/CD
 
 - **Git flow:** GitHub Flow. Work on `feature/<name>`, open a pull request, get a peer review, merge into `main`. `main` is production.
-- **CI (planned, GitHub Actions):** on every pull request, lint (Pint, ESLint) and build (`npm run build`), plus tests once they exist.
+- **CI (GitHub Actions, [`.github/workflows/tests.yml`](.github/workflows/tests.yml)):** runs on every pull request and every push to `main`, on PHP 8.4 and Node 22, with three jobs:
+  - *PHP lint (Pint) and static analysis (Larastan)*
+  - *Frontend lint, format, types and build*: `npm run build`, `npm run check`, `npm run types:check`
+  - *Tests (Pest)*: `php artisan test` on SQLite in memory
+
+  No job connects to PostgreSQL and there is no deploy job yet. Dependabot checks the workflow's GitHub Actions weekly.
 - **Deploy:** merging into `main` triggers a deployment to a Hetzner server. Server type, deploy tool and production URL are TBD.
 
 ---
@@ -512,13 +535,36 @@ No tests exist yet. Planned: `php artisan test` (Pest) covering policies, valida
 ## Project structure
 
 ```text
-README.md                 # this file (the only file today)
-app/                      # (planned) models, controllers, policies, AI services
-database/                 # (planned) migrations, seeders
-resources/js/             # (planned) Vue 3 pages and components
-tests/                    # (planned) Pest tests, fake AI provider
+README.md
+compose.yaml              # optional local PostgreSQL 16
+.github/
+├── workflows/tests.yml   # CI: Pint, Larastan, Vite+ check, vue-tsc, build, Pest
+└── dependabot.yml
+app/
+├── Actions/Fortify/      # starter kit: user creation, password reset
+├── Http/                 # starter kit: settings controllers, requests, Inertia middleware
+├── Models/User.php       # starter kit; (planned) Dish, Ingredient, RecipeItem, MenuSection, WeeklyMenu
+├── Providers/
+├── Policies/             # (planned) owner scoping
+└── Services/Ai/          # (planned) AiClient, fake and OpenRouter providers
+config/
+database/
+├── migrations/           # starter kit only: users, cache, jobs, passkeys, two-factor
+├── factories/
+└── seeders/              # (planned) demo data
+resources/
+├── css/
+├── views/app.blade.php
+└── js/
+    ├── pages/            # starter kit: Welcome, Dashboard, auth/*, settings/*
+    ├── layouts/
+    ├── components/       # starter kit components, ui/ = shadcn-vue
+    ├── composables/
+    ├── lib/
+    └── types/
+routes/                   # web.php, settings.php, console.php
+tests/                    # Pest: starter kit auth and settings tests
 docs/adr/                 # (planned) architecture decision records
-.github/workflows/        # (planned) CI
 ```
 
 ---
@@ -528,8 +574,8 @@ docs/adr/                 # (planned) architecture decision records
 | Week | Scope | Status |
 |---|---|---|
 | S1 (3 Nov) | Course kickoff, idea and team | ✅ |
-| S2 (10 Nov) | README, scope, repository setup | 🔜 in progress |
-| S3 (17 Nov) | Laravel skeleton, auth and roles, schema and seeders, CI | ⬜ |
+| S2 (10 Nov) | README ✅, scope ✅, Laravel skeleton and CI (written and passing locally, first CI run on GitHub pending) | 🔜 in progress |
+| S3 (17 Nov) | Laravel skeleton ✅, CI ✅, auth and roles, schema and seeders | ⬜ |
 | S4 (24 Nov) | **Review 1**: O1 end to end with fake provider, then OpenRouter | ⬜ |
 | S5 (1 Dec) | Cost log, admin dashboard, quotas, O5 scenarios | ⬜ |
 | S6 (8 Dec) | QR menu, weekly menus, landing page, tiers | ⬜ |

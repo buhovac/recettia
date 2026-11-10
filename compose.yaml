@@ -1,0 +1,27 @@
+# Optional local PostgreSQL 16 for development.
+# Credentials come from .env. Any other local PostgreSQL works too.
+#   docker compose up -d
+services:
+    pgsql:
+        image: postgres:16
+        restart: unless-stopped
+        ports:
+            - '${DB_PORT:-5432}:5432'
+        environment:
+            POSTGRES_DB: '${DB_DATABASE}'
+            POSTGRES_USER: '${DB_USERNAME}'
+            POSTGRES_PASSWORD: '${DB_PASSWORD:?set DB_PASSWORD in .env}'
+        volumes:
+            - recettia-pgsql:/var/lib/postgresql/data
+        healthcheck:
+            test:
+                [
+                    'CMD-SHELL',
+                    'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"',
+                ]
+            interval: 5s
+            timeout: 5s
+            retries: 10
+
+volumes:
+    recettia-pgsql:

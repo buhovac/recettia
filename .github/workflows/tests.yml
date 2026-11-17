@@ -152,9 +152,11 @@ jobs:
     env:
       DEPLOY_PATH: /var/www/recettia
       RELEASE: ${{ github.sha }}
-      SSH_DIR: ${{ runner.temp }}/deploy-ssh
-      BUILD_DIR: ${{ runner.temp }}/release
     steps:
+      - name: Set temp paths
+        run: |
+          echo "SSH_DIR=$RUNNER_TEMP/deploy-ssh" >> "$GITHUB_ENV"
+          echo "BUILD_DIR=$RUNNER_TEMP/release" >> "$GITHUB_ENV"
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

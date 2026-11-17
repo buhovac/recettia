@@ -527,8 +527,8 @@ The current tests are the starter kit's own (authentication, email verification,
   - *Frontend lint, format, types and build*: `npm run build`, `npm run check`, `npm run types:check`
   - *Tests (Pest)*: `php artisan test` on SQLite in memory
 
-  No job connects to PostgreSQL and there is no deploy job yet. Dependabot checks the workflow's GitHub Actions weekly.
-- **Deploy:** merging into `main` triggers a deployment to a Hetzner server. Server type, deploy tool and production URL are TBD.
+  No CI job connects to PostgreSQL. Dependabot checks the workflow's GitHub Actions weekly.
+- **Deploy (CD):** a fourth job, *Deploy to production (Hetzner)*, runs only on a push to `main` and only after the three CI jobs pass (GitHub Environment `production`, one deploy at a time, never cancelled midway). It builds on the runner (`composer install --no-dev`, `npm run build`), uploads an immutable release over SSH with rsync, links the shared `.env` and `storage`, runs `migrate --force` and `optimize`, switches the `current` symlink atomically, then health-checks `/up`. If the check fails, it rolls back to the previous release. The last 5 releases are kept. Server layout, one-time setup, required secrets and manual rollback: [`docs/deployment.md`](docs/deployment.md). Production URL is TBD.
 
 ---
 
@@ -574,7 +574,7 @@ docs/adr/                 # (planned) architecture decision records
 | Week | Scope | Status |
 |---|---|---|
 | S1 (3 Nov) | Course kickoff, idea and team | ✅ |
-| S2 (10 Nov) | README ✅, scope ✅, Laravel skeleton and CI (written and passing locally, first CI run on GitHub pending) | 🔜 in progress |
+| S2 (10 Nov) | README ✅, scope ✅, Laravel skeleton and CI (written and passing locally, first CI run on GitHub pending), continuous deployment to Hetzner (workflow written, first real deploy pending) | 🔜 in progress |
 | S3 (17 Nov) | Laravel skeleton ✅, CI ✅, auth and roles, schema and seeders | ⬜ |
 | S4 (24 Nov) | **Review 1**: O1 end to end with fake provider, then OpenRouter | ⬜ |
 | S5 (1 Dec) | Cost log, admin dashboard, quotas, O5 scenarios | ⬜ |

@@ -9,9 +9,11 @@ on:
 permissions:
   contents: read
 
+# Superseded runs are cancelled on branches and PRs, but never on main:
+# a main run may contain a deploy, and killing a deploy halfway is worse than waiting.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 # No database server in CI. Tests use SQLite in memory (phpunit.xml).
 # These overrides keep artisan from touching PostgreSQL during setup and build.
@@ -132,3 +134,222 @@ jobs:
 
       - name: Pest
         run: php artisan test
+
+  deploy:
+    name: Deploy to production (Hetzner)
+    # Only a push to main deploys, and only once every CI job above has passed.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [php-quality, frontend, tests]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: production
+      url: ${{ vars.APP_URL }}
+    # One deploy at a time. A running deploy is never cancelled; a newer push waits.
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    env:
+      DEPLOY_PATH: /var/www/recettia
+      RELEASE: ${{ github.sha }}
+      SSH_DIR: ${{ runner.temp }}/deploy-ssh
+      BUILD_DIR: ${{ runner.temp }}/release
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # v2
+        with:
+          php-version: '8.4'
+          tools: composer:v2
+          coverage: none
+
+      # Production dependencies only. Must run before the Vite build:
+      # the Wayfinder plugin calls artisan, which needs vendor/ (no dev packages required).
+      - name: Install Composer dependencies (production)
+        run: composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction --no-progress
+
+      - name: Setup Node (version from package.json engines)
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          cache: npm
+
+      # npm devDependencies (Vite+, Wayfinder plugin) are needed to build,
+      # but node_modules is never shipped. No .env is needed: artisan boots on
+      # defaults plus the workflow-level env, and VITE_APP_NAME falls back in app.ts.
+      - name: Install npm dependencies and build assets
+        run: |
+          npm ci
+          npm run build
+
+      - name: Assemble release
+        run: |
+          mkdir -p "$BUILD_DIR"
+          rsync -a --delete \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='node_modules' \
+            --exclude='/tests' \
+            --exclude='.env' \
+            --exclude='.env.*' \
+            --exclude='/storage' \
+            --exclude='/public/storage' \
+            --exclude='/public/hot' \
+            --exclude='/.phpunit.cache' \
+            ./ "$BUILD_DIR/"
+          test -f "$BUILD_DIR/public/build/manifest.json"
+          test ! -e "$BUILD_DIR/.env"
+          echo "Release $RELEASE assembled ($(du -sh "$BUILD_DIR" | cut -f1))."
+
+      # The key and host details go into files only; nothing secret is echoed.
+      - name: Configure SSH
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+          APP_URL: ${{ vars.APP_URL }}
+        run: |
+          for name in DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_KEY DEPLOY_KNOWN_HOSTS APP_URL; do
+            if [ -z "${!name}" ]; then
+              echo "::error::$name is not set in the production environment."
+              exit 1
+            fi
+          done
+          umask 077
+          mkdir -p "$SSH_DIR"
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$SSH_DIR/deploy_key"
+          chmod 600 "$SSH_DIR/deploy_key"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$SSH_DIR/known_hosts"
+          cat > "$SSH_DIR/config" <<EOF
+          Host production
+            HostName $DEPLOY_HOST
+            User $DEPLOY_USER
+            IdentityFile $SSH_DIR/deploy_key
+            IdentitiesOnly yes
+            UserKnownHostsFile $SSH_DIR/known_hosts
+            GlobalKnownHostsFile /dev/null
+            StrictHostKeyChecking yes
+            BatchMode yes
+            ConnectTimeout 15
+            ServerAliveInterval 15
+          EOF
+          echo "SSH_CMD=ssh -F $SSH_DIR/config" >> "$GITHUB_ENV"
+
+      - name: Record the release currently live
+        id: previous
+        # Only a real release (a directory under releases/ containing artisan) counts as
+        # "previous". A missing or placeholder current link means this is the first deploy.
+        run: |
+          previous="$($SSH_CMD production bash -s -- "$DEPLOY_PATH" <<'REMOTE'
+          target="$(readlink -f "$1/current" 2>/dev/null || true)"
+          case "$target" in
+            "$1"/releases/*) [ -f "$target/artisan" ] && echo "$target" ;;
+          esac
+          true
+          REMOTE
+          )"
+          if [ -z "$previous" ]; then
+            echo "No previous release on the server: this is the first deploy (rollback disabled)."
+          else
+            echo "Currently live: $previous"
+          fi
+          echo "path=$previous" >> "$GITHUB_OUTPUT"
+
+      # --chmod makes everything world-readable so Nginx (www-data) can serve public/,
+      # while files stay owned by the deploy user. The excludes protect the server-side
+      # symlinks from --delete when the same commit is deployed again (job re-run).
+      - name: Upload release
+        run: |
+          rsync -rlptz --delete --chmod=D755,F644 \
+            --exclude='/.env' \
+            --exclude='/storage' \
+            --exclude='/public/storage' \
+            -e "$SSH_CMD" \
+            "$BUILD_DIR/" "production:$DEPLOY_PATH/releases/$RELEASE/"
+
+      - name: Activate release (links, migrate, optimize, switch current)
+        run: |
+          $SSH_CMD production bash -s -- "$DEPLOY_PATH" "$RELEASE" <<'REMOTE'
+          set -euo pipefail
+          base="$1"
+          release="$base/releases/$2"
+          cd "$release"
+
+          ln -sfn "$base/shared/.env" .env
+          rm -rf storage
+          ln -sfn "$base/shared/storage" storage
+
+          php artisan migrate --force --no-interaction
+          php artisan optimize
+          php artisan storage:link
+
+          # Atomic switch: build the new link beside current, then rename over it.
+          touch "$release"
+          ln -sfn "$release" "$base/current.next"
+          mv -Tf "$base/current.next" "$base/current"
+          echo "current -> $release"
+          REMOTE
+
+      - name: Health check
+        id: healthcheck
+        env:
+          APP_URL: ${{ vars.APP_URL }}
+        run: |
+          url="${APP_URL%/}/up"
+          for attempt in $(seq 1 10); do
+            code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 "$url" || true)"
+            if [ "$code" = "200" ]; then
+              echo "Health check passed on attempt $attempt."
+              exit 0
+            fi
+            echo "Attempt $attempt/10: HTTP ${code:-none}, retrying in 6s."
+            sleep 6
+          done
+          echo "::error::Health check failed: $url did not return 200 after 10 attempts."
+          exit 1
+
+      - name: Roll back to the previous release
+        if: failure() && steps.healthcheck.outcome == 'failure'
+        env:
+          PREVIOUS: ${{ steps.previous.outputs.path }}
+        run: |
+          if [ -z "$PREVIOUS" ]; then
+            echo "::error::First deploy: there is no previous release to roll back to. current still points to releases/$RELEASE. Check the server logs (storage/logs, Nginx, PHP-FPM)."
+            exit 1
+          fi
+          if [ "$PREVIOUS" = "$DEPLOY_PATH/releases/$RELEASE" ]; then
+            echo "::error::The previous release is this same commit (redeploy). Nothing different to roll back to."
+            exit 1
+          fi
+          $SSH_CMD production bash -s -- "$DEPLOY_PATH" "$PREVIOUS" <<'REMOTE'
+          set -euo pipefail
+          test -d "$2"
+          ln -sfn "$2" "$1/current.next"
+          mv -Tf "$1/current.next" "$1/current"
+          echo "current -> $2"
+          REMOTE
+          echo "::error::Release $RELEASE failed its health check. Rolled back to $PREVIOUS. Database migrations were NOT rolled back."
+          exit 1
+
+      - name: Keep the last 5 releases
+        run: |
+          $SSH_CMD production bash -s -- "$DEPLOY_PATH" <<'REMOTE'
+          set -euo pipefail
+          base="$1"
+          live="$(readlink -f "$base/current")"
+          cd "$base/releases"
+          ls -1t | tail -n +6 | while read -r old; do
+            if [ "$base/releases/$old" = "$live" ]; then continue; fi
+            echo "Removing old release $old"
+            rm -rf -- "$old"
+          done
+          REMOTE
+
+      - name: Remove SSH material
+        if: always()
+        run: rm -rf "$SSH_DIR"

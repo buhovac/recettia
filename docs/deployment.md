@@ -41,39 +41,39 @@ Do these once, on the server and in GitHub. Keep real values out of this reposit
 - [ ] Directories exist and belong to `recettia`: `releases/`, `shared/`, `shared/storage/`.
 - [ ] `shared/storage` has the standard Laravel structure:
 
-  ```bash
-  mkdir -p shared/storage/{app/public,framework/{cache/data,sessions,views},logs}
-  ```
+    ```bash
+    mkdir -p shared/storage/{app/public,framework/{cache/data,sessions,views},logs}
+    ```
 
 - [ ] `shared/.env` exists with mode `600` and contains at least `APP_NAME`, `APP_ENV=production`, `APP_KEY` (generate it once with `php artisan key:generate --show`), `APP_DEBUG=false`, `APP_URL`, `DB_CONNECTION=pgsql`, `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME` and `DB_PASSWORD`. Use [`.env.example`](../.env.example) as the template.
 - [ ] The PostgreSQL database and role exist, and the role owns the database (migrations create tables).
 - [ ] Nginx passes the **resolved** path to PHP-FPM, so a symlink switch takes effect without reloading FPM and OPcache never serves a stale release:
 
-  ```nginx
-  root /var/www/recettia/current/public;
-  location ~ \.php$ {
-      fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
-      fastcgi_param DOCUMENT_ROOT   $realpath_root;
-      # … fastcgi_pass to the recettia pool socket
-  }
-  ```
+    ```nginx
+    root /var/www/recettia/current/public;
+    location ~ \.php$ {
+        fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
+        fastcgi_param DOCUMENT_ROOT   $realpath_root;
+        # … fastcgi_pass to the recettia pool socket
+    }
+    ```
 
 - [ ] `current` either does not exist yet or points somewhere harmless. The first deploy replaces it. A `current` that does not point to a real release (a directory under `releases/` that contains `artisan`) counts as "no previous release", and rollback is disabled for that first deploy.
 - [ ] A dedicated deploy key pair (for example ed25519, no passphrase) exists. Its **public** key is in `~recettia/.ssh/authorized_keys`. Do not reuse a personal key.
 
 ### GitHub (Settings → Environments → `production`)
 
-| Name | Kind | Content |
-|---|---|---|
-| `DEPLOY_HOST` | secret | Server hostname or IP that the runner connects to |
-| `DEPLOY_USER` | secret | The SSH user (`recettia`) |
-| `DEPLOY_SSH_KEY` | secret | The deploy key's **private** key, full text including the `BEGIN`/`END` lines |
-| `DEPLOY_KNOWN_HOSTS` | secret | The server's host key line(s), exactly as they appear in a `known_hosts` file. The host field must match `DEPLOY_HOST` (hostname vs IP). Get them with `ssh-keyscan -t ed25519 <host>` and **check the fingerprint against the server** (`ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`) before saving. |
-| `APP_URL` | variable | Public base URL, e.g. `https://example.org` (no trailing slash needed). The health check calls `${APP_URL}/up`. |
+| Name                 | Kind     | Content                                                                                                                                                                                                                                                                                                     |
+| -------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DEPLOY_HOST`        | secret   | Server hostname or IP that the runner connects to                                                                                                                                                                                                                                                           |
+| `DEPLOY_USER`        | secret   | The SSH user (`recettia`)                                                                                                                                                                                                                                                                                   |
+| `DEPLOY_SSH_KEY`     | secret   | The deploy key's **private** key, full text including the `BEGIN`/`END` lines                                                                                                                                                                                                                               |
+| `DEPLOY_KNOWN_HOSTS` | secret   | The server's host key line(s), exactly as they appear in a `known_hosts` file. The host field must match `DEPLOY_HOST` (hostname vs IP). Get them with `ssh-keyscan -t ed25519 <host>` and **check the fingerprint against the server** (`ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`) before saving. |
+| `APP_URL`            | variable | Public base URL, e.g. `https://example.org` (no trailing slash needed). The health check calls `${APP_URL}/up`.                                                                                                                                                                                             |
 
 Optional but recommended: protect the environment with "Deployment branches: `main` only" and, if you want a manual gate, "Required reviewers".
 
-SSH uses port 22. For a different port, add `Port <n>` to the generated SSH config in the workflow's *Configure SSH* step.
+SSH uses port 22. For a different port, add `Port <n>` to the generated SSH config in the workflow's _Configure SSH_ step.
 
 ---
 
@@ -82,21 +82,22 @@ SSH uses port 22. For a different port, add `Port <n>` to the generated SSH conf
 The `deploy` job runs only on a **push to `main`**, and only after `php-quality`, `frontend` and `tests` have all passed. It uses the `production` environment and the concurrency group `deploy-production`: two deploys never overlap, a running deploy is never cancelled, and a newer push waits its turn. Runs on `main` are also exempt from the workflow-level "cancel superseded runs" rule, so a deploy can't be killed halfway.
 
 1. **Build on the runner**
-   - Checkout, PHP 8.4, `composer install --no-dev --prefer-dist --optimize-autoloader`.
-   - Node at the version allowed by `engines` in `package.json`, `npm ci`, `npm run build`.
-   - The order matters: the Wayfinder Vite plugin runs `php artisan wayfinder:generate`, so `vendor/` must exist first. It does **not** need Composer dev packages (`laravel/wayfinder` is a runtime dependency). It does need npm devDependencies (Vite+, the Wayfinder plugin), which is fine because `node_modules` is never shipped. The build needs no `.env`.
+    - Checkout, PHP 8.4, `composer install --no-dev --prefer-dist --optimize-autoloader`.
+    - Node at the version allowed by `engines` in `package.json`, `npm ci`, `npm run build`.
+    - The order matters: the Wayfinder Vite plugin runs `php artisan wayfinder:generate`, so `vendor/` must exist first. It does **not** need Composer dev packages (`laravel/wayfinder` is a runtime dependency). It does need npm devDependencies (Vite+, the Wayfinder plugin), which is fine because `node_modules` is never shipped. The build needs no `.env`.
 2. **Assemble** a release directory without `.git`, `.github`, `node_modules`, `tests`, any `.env*`, `storage`, `public/storage` and `public/hot`.
 3. **SSH setup**: the private key goes into a temp file with mode `600`, and the host key into a dedicated `known_hosts` file used with `StrictHostKeyChecking yes` (an unknown or changed host key aborts the deploy). No secret is printed. The temp files are removed at the end of the job, even after a failure.
 4. **Record** which release is live now (the rollback target).
 5. **Upload** with `rsync --chmod=D755,F644` to `releases/<git sha>/`.
 6. **Activate** over SSH, inside the new release:
-   - link `shared/.env` as `.env` and `shared/storage` as `storage`
-   - `php artisan migrate --force`
-   - `php artisan optimize` (config, routes, events and views caches)
-   - `php artisan storage:link`
-   - switch `current` atomically: `ln -sfn` creates `current.next`, then `mv -T` renames it over `current`, so no request ever sees a missing link.
+    - link `shared/.env` as `.env` and `shared/storage` as `storage`
+    - `php artisan migrate --force`
+    - `php artisan optimize` (config, routes, events and views caches)
+    - `php artisan storage:link`
+    - switch `current` atomically: `ln -sfn` creates `current.next`, then `mv -T` renames it over `current`, so no request ever sees a missing link.
 
-   If any of these fails before the switch, `current` is untouched and the job fails.
+    If any of these fails before the switch, `current` is untouched and the job fails.
+
 7. **Health check**: `GET ${APP_URL}/up`, up to 10 attempts, 6 s apart.
 8. **On failure, roll back**: `current` is relinked to the release recorded in step 4, and the job fails with an error annotation. On the **first deploy** there is nothing to roll back to. The job fails with a clear message, and `current` stays on the new release so you can inspect it.
 9. **Prune**: only the 5 most recent releases are kept. The live release is never deleted.

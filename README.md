@@ -478,7 +478,7 @@ php artisan migrate
 composer run dev
 ```
 
-`composer run dev` starts the Laravel server, a queue worker, the log viewer (Pail) and the Vite dev server together.
+`composer run dev` starts the Laravel server, a queue worker and the Vite dev server together. On macOS and Linux it also starts the log viewer (Pail). Pail needs the PHP `pcntl` extension, which is not available on Windows. On Windows, follow the logs with `Get-Content storage\logs\laravel.log -Wait -Tail 20`.
 
 Environment variables (names only, values in your local `.env`, never committed):
 

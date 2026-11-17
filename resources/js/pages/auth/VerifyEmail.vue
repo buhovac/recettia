@@ -4,7 +4,6 @@ import TextLink from '@/components/TextLink.vue';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { logout } from '@/routes';
-import { send } from '@/routes/verification';
 
 defineOptions({
     layout: {
@@ -17,6 +16,12 @@ defineOptions({
 defineProps<{
     status?: string;
 }>();
+
+// Email verification is disabled until SMTP is configured, so Fortify does not
+// register the verification routes and Wayfinder generates no '@/routes/verification'.
+// Fortify's fixed endpoint is used instead. Once re-enabled, this can go back to
+// `import { send } from '@/routes/verification'`.
+const sendVerificationUrl = '/email/verification-notification';
 </script>
 
 <template>
@@ -31,7 +36,8 @@ defineProps<{
     </div>
 
     <Form
-        v-bind="send.form()"
+        :action="sendVerificationUrl"
+        method="post"
         class="space-y-6 text-center"
         v-slot="{ processing }"
     >

@@ -127,7 +127,8 @@ The model never returns prices, costs or margins. Those fields do not exist in t
 - [ ] Demo seeders (restaurant, price list, dishes, weekly menu)
 
 **O3 · Accounts and access**
-- [x] Registration, login, logout, password reset, email verification (provided by the Laravel Vue starter kit, Fortify)
+- [x] Registration, login, logout, password reset (provided by the Laravel Vue starter kit, Fortify)
+- [ ] Email verification: **intentionally disabled** until SMTP is configured (production mail goes to the log for now). New accounts can use the app right away. Re-enabling takes two switches: `MustVerifyEmail` on `App\Models\User` and `Features::emailVerification()` in `config/fortify.php`.
 - [ ] Roles `user` and `admin`
 - [ ] Policies: a user only sees their own (or their restaurant's) data
 - [ ] Responsive layout usable on a phone

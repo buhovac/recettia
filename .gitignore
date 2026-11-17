@@ -27,9 +27,9 @@ yarn-error.log
 /.nova
 /.vscode
 /.zed
-/.agents
 /.amp
-/.claude
+/.claude/*
+!/.claude/skills/
 /.codex
 /.cursor
 /.factory
@@ -38,8 +38,6 @@ yarn-error.log
 /.kiro
 /.pi
 /.mcp.json
-/AGENTS.md
-/CLAUDE.md
 /boost.json
 /opencode.json
 /opencode.jsonc

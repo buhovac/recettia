@@ -163,7 +163,9 @@ return [
     'features' => [
         Features::registration(),
         Features::resetPasswords(),
-        Features::emailVerification(),
+        // Disabled until SMTP is configured (MAIL_MAILER=log in production).
+        // Re-enable together with `implements MustVerifyEmail` on App\Models\User.
+        // Features::emailVerification(),
         Features::twoFactorAuthentication([
             'confirm' => true,
             'confirmPassword' => true,

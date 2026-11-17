@@ -10,7 +10,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { edit } from '@/routes/profile';
-import { send } from '@/routes/verification';
 
 defineOptions({
     layout: {
@@ -25,6 +24,12 @@ defineOptions({
 
 const page = usePage();
 const user = computed(() => page.props.auth.user);
+
+// Email verification is disabled until SMTP is configured, so Fortify does not
+// register the verification routes and Wayfinder generates no '@/routes/verification'.
+// Fortify's fixed endpoint is used instead. Once re-enabled, this can go back to
+// `import { send } from '@/routes/verification'`.
+const sendVerificationUrl = '/email/verification-notification';
 </script>
 
 <template>
@@ -77,7 +82,8 @@ const user = computed(() => page.props.auth.user);
                 <p class="-mt-4 text-sm text-muted-foreground">
                     Your email address is unverified.
                     <Link
-                        :href="send()"
+                        :href="sendVerificationUrl"
+                        method="post"
                         as="button"
                         class="text-foreground underline decoration-neutral-300 underline-offset-4 transition-colors duration-300 ease-out hover:decoration-current! dark:decoration-neutral-500"
                     >

@@ -17,6 +17,8 @@ class VerificationNotificationTest extends TestCase
     {
         parent::setUp();
 
+        // Skipped while email verification is disabled (until SMTP is configured).
+        // Runs again automatically once Features::emailVerification() is re-enabled.
         $this->skipUnlessFortifyHas(Features::emailVerification());
     }
 

@@ -8,9 +8,9 @@ PostgreSQL 16 fonctionne dans Docker sur le port 5434 : cinq migrations exécut�
 
 ## Tickets ouverts
 
-| Ticket | Sujet | Statut |
-| --- | --- | --- |
-| — | Aucun ticket ouvert | — |
+| Ticket | Sujet               | Statut |
+| ------ | ------------------- | ------ |
+| —      | Aucun ticket ouvert | —      |
 
 ## Prochaine action
 

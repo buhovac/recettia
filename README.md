@@ -10,7 +10,7 @@ It is **not** a chat wrapper. There is no conversation and no free-form answer s
 
 ## Status
 
-🚧 **Skeleton in place.** Course week S2 (10 Nov 2026), heading towards review 1 on 24 Nov 2026. The repository contains the official Laravel Vue starter kit (Laravel, Inertia, Vue 3, Fortify authentication, Pest) and a CI workflow ([`.github/workflows/tests.yml`](.github/workflows/tests.yml)). There is no recettIA domain code yet: no business entity, no migration beyond the starter kit's, no AI code. Every feature below is **Planned** unless stated otherwise.
+🚧 **Skeleton in place.** Course week S2 (10 Nov 2026), heading towards review 1 on 24 Nov 2026. The repository contains the official Laravel Vue starter kit (Laravel, Inertia, Vue 3, Fortify authentication, Pest) and a CI workflow ([`.github/workflows/tests.yml`](.github/workflows/tests.yml)). The first AI feature is wired: a logged-in user can paste a recipe on `/recipes/analyze` and get its ingredients, quantities and allergens from OpenRouter (through `laravel/ai`), validated server-side, with every call logged in `ai_call_logs` with its billed cost. There is no business entity yet (`Dish`, `Ingredient`…), so nothing is priced or saved. Every feature below is **Planned** unless stated otherwise.
 
 School project 2 of the *Projet d'intégration de développement* course (5IDEV, Ifosup Wavre, 2026-2027): [course page](https://cours.tsix.be/cours/projet-dintegration-de-developpement/projet-2).
 
@@ -113,9 +113,9 @@ The model never returns prices, costs or margins. Those fields do not exist in t
 ### MVP Core — planned
 
 **O1 · AI feature**
-- [ ] Free-text recipe input with a length limit
-- [ ] Server-side OpenRouter call returning strict JSON
-- [ ] JSON validation (schema + business rules) before anything is stored
+- [x] Free-text recipe input with a length limit (5,000 characters)
+- [x] Server-side OpenRouter call returning strict JSON
+- [x] JSON validation (schema + business rules) before anything is stored
 - [ ] Ingredient matching against the price list, unmatched ingredients flagged
 - [ ] Food cost per portion, target margin, suggested selling price
 - [ ] Technical sheet per dish
@@ -134,7 +134,7 @@ The model never returns prices, costs or margins. Those fields do not exist in t
 - [ ] Responsive layout usable on a phone
 
 **O4 · Cost and quotas**
-- [ ] `ai_call_logs`: date, user, model, tokens in/out, cost, duration, success/failure
+- [x] `ai_call_logs`: date, user, model, tokens in/out, cost, duration, success/failure
 - [ ] Admin dashboard: totals per day and per user
 - [ ] Quota per user/group tied to the tier, checked before each call
 
@@ -170,9 +170,9 @@ flowchart LR
     subgraph Server["Laravel on Hetzner"]
         CTRL["Controllers + Form Requests"]
         POL["Policies + quota guard"]
-        AI["AiClient interface"]
-        FAKE["FakeAiProvider"]
-        ORC["OpenRouterProvider"]
+        AI["RecipeAnalyzer service"]
+        FAKE["Agent fake (tests); scenario fake (planned, O5)"]
+        ORC["RecipeAnalysisAgent (laravel/ai)"]
         VAL["JSON validator"]
         COST["Food cost service"]
         LOG["AI call logger"]
@@ -197,7 +197,7 @@ flowchart LR
     AI -.-> QUEUE
 ```
 
-The browser never talks to OpenRouter. The API key lives only in the server environment. `AI_PROVIDER` selects `fake` or `openrouter`; tests and demos of failure cases use `fake`.
+The browser never talks to OpenRouter. The API key lives only in the server environment. Model calls go through the official Laravel AI SDK (`laravel/ai`), with OpenRouter as the default provider ([D-001](docs/decisions/D-001-laravel-ai-openrouter.md)). Tests replace the agent with `RecipeAnalysisAgent::fake()` and never reach OpenRouter. A fake provider for live failure demos (`AI_PROVIDER`, `AI_FAKE_SCENARIO`) is still planned (O5).
 
 ### Trust boundary
 
@@ -218,7 +218,7 @@ Matching is deterministic and done in PHP/SQL: normalised name (lowercase, accen
 
 ### QR menu = zero AI calls
 
-The public menu reads only published dishes, their confirmed allergen codes and their sections. Filtering by allergen is a query (or a client-side filter on already loaded data). There is no code path from the QR menu to `AiClient`.
+The public menu reads only published dishes, their confirmed allergen codes and their sections. Filtering by allergen is a query (or a client-side filter on already loaded data). There is no code path from the QR menu to any AI agent.
 
 ### Cost metering from the `usage` field
 
@@ -247,15 +247,16 @@ food_cost_ratio = cost_per_portion / selling_price
 | Build | Vite+ (`vp` CLI, Vite-compatible toolchain from the starter kit) |
 | Styling | Tailwind CSS 4 |
 | Database | PostgreSQL 16 *(proposed default)* |
+| AI SDK | Laravel AI SDK (`laravel/ai`) |
 | AI gateway | OpenRouter, called from Laravel only |
-| Model | Model choice pending, justified in the project report |
+| Model | `openai/gpt-6-luna` by default (`OPENROUTER_MODEL`), see [D-001](docs/decisions/D-001-laravel-ai-openrouter.md) |
 | QR code generation | Library TBD |
-| Tests | Pest 5; fake AI provider *(planned)* |
+| Tests | Pest 5; `Agent::fake()` for model calls; scenario fake provider *(planned, O5)* |
 | Lint / format / types | Laravel Pint, Larastan, `vp check` (lint + format), vue-tsc |
 | CI | GitHub Actions |
 | Hosting | Hetzner |
 
-Model candidates (not decided): small, fast, low-cost instruction models available on OpenRouter that support structured JSON output. The choice will be made on measured accuracy on a test set of recipes and observed cost.
+Model choice: the two models recommended by the course, GPT-6 Luna and DeepSeek V4.1 Flash, were compared on real calls. Both found the right allergens on a simple recipe. On a recipe with hidden allergens, DeepSeek used up the 3,000-token output cap on reasoning and its answer was rejected, at about 4 times Luna's cost. Measured figures are in D-001. A proper test set of recipes with expected allergens is still to be built.
 
 ---
 
@@ -399,7 +400,7 @@ Errors reject the whole response and trigger the "unusable response" path (O5). 
 
 ## AI failure handling (O5)
 
-Every case is reproducible without spending credit, through the fake provider (`AI_PROVIDER=fake`) or an admin setting that forces a scenario.
+Every case is reproducible without spending credit, through the fake provider (`AI_PROVIDER=fake`) or an admin setting that forces a scenario *(planned)*. Already in place: each case below has its own outcome in `ai_call_logs`, its own French message on the analysis page, and a test that simulates it with `Agent::fake()`. A text with no ingredient at all (for example only a dish name) gets its own message and outcome (`no_ingredients`).
 
 | Case | How to trigger | What the user sees | What is preserved |
 |---|---|---|---|
@@ -415,7 +416,7 @@ In every case: no stack trace, the price list, dishes, menus and QR menu stay re
 
 ## Cost, quotas & pricing (O4, O6)
 
-Pre-measurement estimate: about 800–1,000 tokens per recipe analysis, which with a fast low-cost model on OpenRouter is **≈ €0.0003 per call**. This is an estimate, to be replaced by the averages observed in the cost dashboard.
+First measurements with GPT-6 Luna (billed cost reported by OpenRouter): **about $0.00015** for a short recipe (6 ingredients, 736 tokens) and **about $0.0006** for a 13-ingredient recipe (about 1,900 tokens, reasoning included). These are single calls, to be replaced by the averages observed in the cost dashboard.
 
 | Item | Source / formula | Value |
 |---|---|---|
@@ -427,7 +428,7 @@ Pre-measurement estimate: about 800–1,000 tokens per recipe analysis, which wi
 | Pro tier: AI cost at full quota | Pro quota × average cost | TBD — filled from observed costs |
 | Resulting margin | (price − AI cost at full quota) / price | TBD — filled from observed costs |
 
-The development and test budget is **€1 of OpenRouter credit**. Automated tests use the fake provider only. There is no payment integration; an admin changes a tier manually.
+The development and test budget is the course's OpenRouter key, capped at **$0.50** with no refill and shared by every developer machine and production. When it is used up, OpenRouter refuses calls and the app shows "AI service unavailable"; it cannot overspend. There is no per-user quota yet (O4), so one account could use up the whole budget: accepted risk until quotas land. Automated tests use the fake provider only. There is no payment integration; an admin changes a tier manually.
 
 ---
 
@@ -446,17 +447,24 @@ The development and test budget is **€1 of OpenRouter credit**. Automated test
 
 ## Architecture decisions
 
-ADRs to be written in `docs/adr/`.
+Decisions are recorded in [`docs/decisions/`](docs/decisions/), one file per decision, accepted by merging its pull request (see `AGENTS.md`). Written so far:
 
-| ADR | Decision |
+| Decision | Status |
 |---|---|
-| 0001 | Laravel + Vue 3 + Inertia.js: one deployable app, no separate API |
-| 0002 | All model calls go through Laravel; the browser never sees the key |
-| 0003 | Strict, versioned JSON contract; model output is untrusted input |
-| 0004 | QR menu and technical sheets never call the model |
-| 0005 | PostgreSQL 16 as the database *(proposed)* |
-| 0006 | Quota enforced server-side before each call, tied to the tier |
-| 0007 | `AiClient` interface with a fake provider for tests and failure demos |
+| [D-001](docs/decisions/D-001-laravel-ai-openrouter.md): model calls through `laravel/ai`, OpenRouter, `openai/gpt-6-luna` by default | proposed |
+
+Still to write (the former ADR list):
+
+| Topic | Decision |
+|---|---|
+| Stack | Laravel + Vue 3 + Inertia.js: one deployable app, no separate API |
+| Key | All model calls go through Laravel; the browser never sees the key |
+| Contract | Strict, versioned JSON contract; model output is untrusted input |
+| QR menu | QR menu and technical sheets never call the model |
+| Database | PostgreSQL 16 as the database *(proposed)* |
+| Quotas | Quota enforced server-side before each call, tied to the tier |
+
+The former ADR 0007 (`AiClient` interface with a fake provider) is replaced by D-001: the SDK provides the agent class and its test fake.
 
 ---
 
@@ -490,13 +498,15 @@ DB_DATABASE=recettia
 DB_USERNAME=recettia
 DB_PASSWORD=
 
-# AI (not wired yet: no code reads these variables)
+# AI, through OpenRouter (laravel/ai, see config/ai.php)
 OPENROUTER_API_KEY=
-OPENROUTER_MODEL=
-AI_PROVIDER=fake            # planned: fake | openrouter
-AI_FAKE_SCENARIO=           # planned: ok | timeout | down | credit | invalid_json | bad_schema
-AI_TIMEOUT_SECONDS=
+OPENROUTER_MODEL=           # empty means openai/gpt-6-luna
+AI_TIMEOUT_SECONDS=         # empty means 60
+AI_PROVIDER=fake            # planned (O5), read by nothing yet: fake | openrouter
+AI_FAKE_SCENARIO=           # planned (O5): ok | timeout | down | credit | invalid_json | bad_schema
 ```
+
+To check the AI setup with one real call (it costs real credit, about $0.0002), run `php artisan recipe:try`. It prints the outcome, tokens, billed cost and duration, and logs the call in `ai_call_logs`.
 
 ## Requirements
 
@@ -516,7 +526,7 @@ npm run types:check                                 # vue-tsc
 npm run build
 ```
 
-The current tests are the starter kit's own (authentication, email verification, profile and security settings). There are no recettIA domain tests yet. Planned: tests for policies, validation rules, the JSON validator, cost formulas and every O5 scenario through the fake provider. No test calls OpenRouter.
+Besides the starter kit's own tests (authentication, email verification, profile and security settings), the recipe analysis is covered: the validator of the model answer (unit tests), and the analysis page with a faked model (success, rejected answer, no ingredients, timeout, provider down, credit exhausted, input validation, call logging). No test calls OpenRouter: the agent is faked with `preventStrayPrompts()`. Planned: tests for policies, cost formulas and the O5 scenario fake provider.
 
 ---
 
@@ -543,29 +553,34 @@ compose.yaml              # optional local PostgreSQL 16
 └── dependabot.yml
 app/
 ├── Actions/Fortify/      # starter kit: user creation, password reset
-├── Http/                 # starter kit: settings controllers, requests, Inertia middleware
-├── Models/User.php       # starter kit; (planned) Dish, Ingredient, RecipeItem, MenuSection, WeeklyMenu
+├── Ai/Agents/            # laravel/ai agents: RecipeAnalysisAgent (prompt + strict schema)
+├── Console/Commands/     # recipe:try, one real model call to check the setup
+├── Enums/                # Allergen (closed list of 14), AiCallOutcome
+├── Http/                 # settings controllers (starter kit), RecipeAnalysisController, Form Requests
+├── Models/               # User, AiCallLog; (planned) Dish, Ingredient, RecipeItem, MenuSection, WeeklyMenu
 ├── Providers/
 ├── Policies/             # (planned) owner scoping
-└── Services/Ai/          # (planned) AiClient, fake and OpenRouter providers
-config/
+└── Services/RecipeAnalysis/  # analyzer, validator of the model answer
+config/                   # ai.php: OpenRouter provider and default model
 database/
-├── migrations/           # starter kit only: users, cache, jobs, passkeys, two-factor
+├── migrations/           # starter kit tables + ai_call_logs
 ├── factories/
 └── seeders/              # (planned) demo data
 resources/
 ├── css/
 ├── views/app.blade.php
 └── js/
-    ├── pages/            # starter kit: Welcome, Dashboard, auth/*, settings/*
+    ├── pages/            # Welcome, Dashboard, auth/*, settings/* (starter kit), recipes/Analyze
     ├── layouts/
     ├── components/       # starter kit components, ui/ = shadcn-vue
     ├── composables/
     ├── lib/
     └── types/
 routes/                   # web.php, settings.php, console.php
-tests/                    # Pest: starter kit auth and settings tests
-docs/adr/                 # (planned) architecture decision records
+tests/                    # Pest: starter kit tests, recipe analysis (fake model), validator
+docs/
+├── decisions/            # group decisions (D-001…), accepted by merging their PR
+└── <first name>/         # each member's status, tickets and daily log
 ```
 
 ---
@@ -577,7 +592,7 @@ docs/adr/                 # (planned) architecture decision records
 | S1 (3 Nov) | Course kickoff, idea and team | ✅ |
 | S2 (10 Nov) | README ✅, scope ✅, Laravel skeleton and CI (written and passing locally, first CI run on GitHub pending), continuous deployment to Hetzner (workflow written, first real deploy pending) | 🔜 in progress |
 | S3 (17 Nov) | Laravel skeleton ✅, CI ✅, auth and roles, schema and seeders | ⬜ |
-| S4 (24 Nov) | **Review 1**: O1 end to end with fake provider, then OpenRouter | ⬜ |
+| S4 (24 Nov) | **Review 1**: O1 end to end with fake provider, then OpenRouter. Done: real OpenRouter call, validation, call log with billed cost. Not done: price list, food cost, saving dishes | 🔜 in progress |
 | S5 (1 Dec) | Cost log, admin dashboard, quotas, O5 scenarios | ⬜ |
 | S6 (8 Dec) | QR menu, weekly menus, landing page, tiers | ⬜ |
 | S7 (15 Dec) | **Review 2**: legal pages, account deletion, mobile polish, deploy | ⬜ |

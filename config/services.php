@@ -35,4 +35,9 @@ return [
         ],
     ],
 
+    'openrouter' => [
+        // Seconds before a model call is abandoned. `?:` so an empty line still falls back.
+        'timeout' => (int) (env('AI_TIMEOUT_SECONDS') ?: 60),
+    ],
+
 ];

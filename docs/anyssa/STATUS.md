@@ -2,20 +2,20 @@
 
 ## Où j'en suis
 
-L'analyse de recette par OpenRouter (AN-001) marche en local : six essais réels, page testée sur ordinateur, et Luna retenu après comparaison (D-001).
-Il reste la largeur téléphone, puis le commit et la PR. Rien n'est encore poussé.
-La revue n°1 (aujourd'hui, 18 h) exige un appel réel en production : il faut la PR fusionnée et la clé sur le serveur (Marko).
+AN-001 est terminé côté code : la PR #7 est ouverte et sa CI est verte. L'analyse a été testée en local, sur PostgreSQL, avec six appels réels.
+La PR attend une relecture et sa fusion. Ensuite, Marko met la clé dans `shared/.env` sur le serveur et lance `php artisan recipe:try` en production.
+Le message au groupe est envoyé sur Teams : découpage du calcul du coût en 5 morceaux, et proposition de tests sur PostgreSQL dans la CI.
 
 ## Tickets ouverts
 
 | Ticket | Sujet                                                    | Statut                          |
 | ------ | -------------------------------------------------------- | ------------------------------- |
-| AN-001 | Analyse d'une recette par OpenRouter, journal des appels | en cours                        |
+| AN-001 | Analyse d'une recette par OpenRouter, journal des appels | en cours (PR #7)                |
 | AN-002 | Brouillon de recette depuis un nom de plat               | ouvert, à valider par le groupe |
 
 ## Prochaine action
 
-1. Vérifier la page « Analyser une recette » en largeur téléphone (F12, puis l'icône téléphone).
-2. Committer sur `feature/openrouter-recipe-analysis`, pousser, ouvrir la PR et demander une relecture.
-3. Après la fusion, envoyer à Marko : `OPENROUTER_API_KEY` à mettre dans `shared/.env` du serveur, puis `php artisan recipe:try` en production.
-4. Créer un compte en production pour la démonstration.
+1. Vérifier sur GitHub si la PR #7 est fusionnée, puis vérifier l'appel réel en production (`php artisan recipe:try` sur le serveur, par Marko).
+2. Pour la démonstration : créer un compte sur le site en production et lancer une analyse.
+3. Lire les réponses du groupe sur Teams : qui prend quel morceau du calcul du coût, D-002 (schéma), tests sur PostgreSQL, AN-002, ZDR.
+4. Proposer une PR pour le skill `ma-stack` et le tableau « Commandes » d'`AGENTS.md` (ils sont encore vides).
